@@ -2,17 +2,24 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/verssache/chatgpt-creator/internal/config"
 	"github.com/verssache/chatgpt-creator/internal/register"
+	"github.com/verssache/chatgpt-creator/internal/webui"
 )
 
 func main() {
 	printBanner()
+
+	cliMode := flag.Bool("cli", false, "run interactive CLI mode")
+	listenAddr := flag.String("listen", defaultListenAddr(), "web UI listen address")
+	flag.Parse()
 
 	// Load config
 	cfg, err := config.Load("config.json")
@@ -21,6 +28,40 @@ func main() {
 		os.Exit(1)
 	}
 
+	if !*cliMode {
+		runWebServer(cfg, *listenAddr)
+		return
+	}
+
+	runCLI(cfg)
+}
+
+func runWebServer(cfg *config.Config, listenAddr string) {
+	server, err := webui.New(cfg)
+	if err != nil {
+		fmt.Printf("Error preparing web UI: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Web UI running at http://%s\n", listenAddr)
+	fmt.Printf("Use --cli to keep the old terminal prompt mode.\n\n")
+
+	if err := http.ListenAndServe(listenAddr, server.Handler(listenAddr)); err != nil {
+		fmt.Printf("Web server error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func defaultListenAddr() string {
+	port := strings.TrimSpace(os.Getenv("PORT"))
+	if port == "" {
+		return "127.0.0.1:8080"
+	}
+
+	return "0.0.0.0:" + port
+}
+
+func runCLI(cfg *config.Config) {
 	reader := bufio.NewReader(os.Stdin)
 
 	// 1. Proxy prompt

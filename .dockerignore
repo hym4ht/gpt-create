@@ -1,0 +1,7 @@
+.git
+.gitignore
+chatgpt-creator
+results.txt
+blacklist.json
+node_modules
+tmp

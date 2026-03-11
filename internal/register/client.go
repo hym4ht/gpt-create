@@ -29,11 +29,12 @@ type Client struct {
 	fullVersion string
 	ua          string
 	secChUA     string
+	logger      LoggerFunc
 	printMu     *sync.Mutex
 	fileMu      *sync.Mutex
 }
 
-func NewClient(proxy, tag string, workerID int, printMu, fileMu *sync.Mutex) (*Client, error) {
+func NewClient(proxy, tag string, workerID int, printMu, fileMu *sync.Mutex, logger LoggerFunc) (*Client, error) {
 	profile, fullVersion, ua := chrome.RandomChromeVersion()
 	impersonate := profile.Impersonate
 	mappedProfile := chrome.MapToTLSProfile(impersonate)
@@ -63,6 +64,7 @@ func NewClient(proxy, tag string, workerID int, printMu, fileMu *sync.Mutex) (*C
 		impersonate: impersonate,
 		fullVersion: fullVersion,
 		ua:          ua,
+		logger:      logger,
 		printMu:     printMu,
 		fileMu:      fileMu,
 	}
@@ -110,17 +112,11 @@ func (c *Client) do(req *http.Request) (*http.Response, error) {
 }
 
 func (c *Client) log(step string, status int) {
-	c.printMu.Lock()
-	defer c.printMu.Unlock()
-
 	ts := time.Now().Format("15:04:05")
-	fmt.Printf("[%s] [W%d] [%s] %s | %d\n", ts, c.workerID, c.tag, step, status)
+	emitLine(c.printMu, c.logger, "[%s] [W%d] [%s] %s | %d\n", ts, c.workerID, c.tag, step, status)
 }
 
 func (c *Client) print(msg string) {
-	c.printMu.Lock()
-	defer c.printMu.Unlock()
-
 	ts := time.Now().Format("15:04:05")
-	fmt.Printf("[%s] [W%d] [%s] %s\n", ts, c.workerID, c.tag, msg)
+	emitLine(c.printMu, c.logger, "[%s] [W%d] [%s] %s\n", ts, c.workerID, c.tag, msg)
 }

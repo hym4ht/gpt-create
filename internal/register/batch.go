@@ -3,18 +3,28 @@ package register
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-	"strings"
 
 	"github.com/verssache/chatgpt-creator/internal/email"
 	"github.com/verssache/chatgpt-creator/internal/util"
 )
 
+type BatchSummary struct {
+	Target    int       `json:"target"`
+	Success   int       `json:"success"`
+	Attempts  int       `json:"attempts"`
+	Failures  int       `json:"failures"`
+	Elapsed   string    `json:"elapsed"`
+	StartedAt time.Time `json:"started_at"`
+	EndedAt   time.Time `json:"ended_at"`
+}
+
 // registerOne handles a single account registration.
-func registerOne(workerID int, tag string, proxy, outputFile, defaultPassword, defaultDomain string, printMu, fileMu *sync.Mutex) (bool, string, string) {
-	client, err := NewClient(proxy, tag, workerID, printMu, fileMu)
+func registerOne(workerID int, tag string, proxy, outputFile, defaultPassword, defaultDomain string, printMu, fileMu *sync.Mutex, logger LoggerFunc) (bool, string, string) {
+	client, err := NewClient(proxy, tag, workerID, printMu, fileMu, logger)
 	if err != nil {
 		return false, "", fmt.Sprintf("failed to create client: %v", err)
 	}
@@ -58,7 +68,12 @@ func registerOne(workerID int, tag string, proxy, outputFile, defaultPassword, d
 }
 
 // RunBatch runs concurrent registration tasks with retry until target success count is reached.
-func RunBatch(totalAccounts int, outputFile string, maxWorkers int, proxy, defaultPassword, defaultDomain string) {
+func RunBatch(totalAccounts int, outputFile string, maxWorkers int, proxy, defaultPassword, defaultDomain string) BatchSummary {
+	return RunBatchWithLogger(totalAccounts, outputFile, maxWorkers, proxy, defaultPassword, defaultDomain, nil)
+}
+
+// RunBatchWithLogger runs concurrent registration tasks and emits logs through the provided callback.
+func RunBatchWithLogger(totalAccounts int, outputFile string, maxWorkers int, proxy, defaultPassword, defaultDomain string, logger LoggerFunc) BatchSummary {
 	var printMu sync.Mutex
 	var fileMu sync.Mutex
 
@@ -86,13 +101,11 @@ func RunBatch(totalAccounts int, outputFile string, maxWorkers int, proxy, defau
 				attempt := atomic.AddInt64(&attemptNum, 1)
 				tag := fmt.Sprintf("%d/%d", attempt, totalAccounts)
 
-				success, emailAddr, errStr := registerOne(workerID, tag, proxy, outputFile, defaultPassword, defaultDomain, &printMu, &fileMu)
+				success, emailAddr, errStr := registerOne(workerID, tag, proxy, outputFile, defaultPassword, defaultDomain, &printMu, &fileMu, logger)
 				if success {
 					atomic.AddInt64(&successCount, 1)
 					ts := time.Now().Format("15:04:05")
-					printMu.Lock()
-					fmt.Printf("[%s] [W%d] ✓ SUCCESS: %s\n", ts, workerID, emailAddr)
-					printMu.Unlock()
+					emitLine(&printMu, logger, "[%s] [W%d] SUCCESS: %s\n", ts, workerID, emailAddr)
 				} else {
 					atomic.AddInt64(&failureCount, 1)
 					// Failed — return the slot so it gets retried
@@ -104,15 +117,11 @@ func RunBatch(totalAccounts int, outputFile string, maxWorkers int, proxy, defau
 						if len(parts) == 2 {
 							domain := parts[1]
 							email.AddBlacklistDomain(domain)
-							printMu.Lock()
-							fmt.Printf("[%s] [W%d] ⚠ Blacklisted domain: %s\n", ts, workerID, domain)
-							printMu.Unlock()
+							emitLine(&printMu, logger, "[%s] [W%d] Blacklisted domain: %s\n", ts, workerID, domain)
 						}
 					}
 
-					printMu.Lock()
-					fmt.Printf("[%s] [W%d] ✗ FAILURE: %s | %s\n", ts, workerID, emailAddr, errStr)
-					printMu.Unlock()
+					emitLine(&printMu, logger, "[%s] [W%d] FAILURE: %s | %s\n", ts, workerID, emailAddr, errStr)
 				}
 			}
 		}(w)
@@ -123,13 +132,23 @@ func RunBatch(totalAccounts int, outputFile string, maxWorkers int, proxy, defau
 	elapsed := time.Since(startTime)
 	elapsedStr := formatDuration(elapsed)
 
-	fmt.Printf("\n--- Batch Registration Summary ---\n")
-	fmt.Printf("Target:    %d\n", totalAccounts)
-	fmt.Printf("Success:   %d\n", successCount)
-	fmt.Printf("Attempts:  %d\n", attemptNum)
-	fmt.Printf("Failures:  %d\n", failureCount)
-	fmt.Printf("Elapsed:   %s\n", elapsedStr)
-	fmt.Printf("----------------------------------\n")
+	emitLine(&printMu, logger, "\n--- Batch Registration Summary ---\n")
+	emitLine(&printMu, logger, "Target:    %d\n", totalAccounts)
+	emitLine(&printMu, logger, "Success:   %d\n", successCount)
+	emitLine(&printMu, logger, "Attempts:  %d\n", attemptNum)
+	emitLine(&printMu, logger, "Failures:  %d\n", failureCount)
+	emitLine(&printMu, logger, "Elapsed:   %s\n", elapsedStr)
+	emitLine(&printMu, logger, "----------------------------------\n")
+
+	return BatchSummary{
+		Target:    totalAccounts,
+		Success:   int(successCount),
+		Attempts:  int(attemptNum),
+		Failures:  int(failureCount),
+		Elapsed:   elapsedStr,
+		StartedAt: startTime,
+		EndedAt:   time.Now(),
+	}
 }
 
 func formatDuration(d time.Duration) string {
