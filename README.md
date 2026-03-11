@@ -30,7 +30,41 @@ go mod download
 go run cmd/register/main.go
 ```
 
-### Interactive Prompts
+Perintah di atas sekarang menyalakan web UI di `http://127.0.0.1:8080`.
+
+Jika ingin tetap memakai prompt terminal lama:
+
+```bash
+go run cmd/register/main.go --cli
+```
+
+Jika ingin mengganti alamat web UI:
+
+```bash
+go run cmd/register/main.go --listen 127.0.0.1:9090
+```
+
+### Web Features
+
+- Input registrasi lewat HTML form
+- Live log proses langsung di web
+- Download file hasil langsung dari browser
+
+### Railway Deploy
+
+Project ini sudah disiapkan untuk Railway:
+
+- Binary otomatis bind ke `0.0.0.0:$PORT` jika env `PORT` tersedia
+- `Dockerfile` sudah disediakan untuk deploy container di Railway
+
+Contoh alur deploy:
+
+```bash
+railway link
+railway up
+```
+
+### CLI Interactive Prompts
 
 ```
 Proxy (enter to skip):
@@ -100,7 +134,7 @@ email|password
 .
 ├── cmd/
 │   └── register/
-│       └── main.go          # Entry point, interactive prompts
+│       └── main.go          # Entry point, web UI + CLI fallback
 ├── internal/
 │   ├── config/
 │   │   └── config.go        # Configuration loading & validation
@@ -112,6 +146,8 @@ email|password
 │   │   └── generator.go     # Temporary email generation
 │   ├── chrome/
 │   │   └── profiles.go      # Chrome TLS profile randomization
+│   ├── webui/
+│   │   └── server.go        # HTML frontend and status endpoint
 │   └── util/
 │       ├── helpers.go       # Utility functions
 │       ├── names.go         # Random name generation (gofakeit)
@@ -129,3 +165,4 @@ This tool is provided for educational and research purposes only. Use of this to
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+# gpt-create
