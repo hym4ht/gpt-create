@@ -148,6 +148,9 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	filename := filepath.Base(outputFile)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
 	http.ServeFile(w, r, outputFile)
 }
 
@@ -277,6 +280,15 @@ func (s *Server) setError(msg string) {
 	s.job.Error = msg
 }
 
+func buildDownloadURL(outputFile string, modifiedAt time.Time) string {
+	version := modifiedAt.UTC().UnixNano()
+	if version <= 0 {
+		version = time.Now().UTC().UnixNano()
+	}
+
+	return fmt.Sprintf("/download?v=%d", version)
+}
+
 func (s *Server) snapshot() jobState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -287,7 +299,7 @@ func (s *Server) snapshot() jobState {
 	outputFile := strings.TrimSpace(state.Config.OutputFile)
 	if outputFile != "" {
 		if info, err := os.Stat(outputFile); err == nil && !info.IsDir() {
-			state.DownloadURL = "/download"
+			state.DownloadURL = buildDownloadURL(outputFile, info.ModTime())
 			state.DownloadName = filepath.Base(outputFile)
 		}
 	}
